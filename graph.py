@@ -30,6 +30,25 @@ for m in conversation["messages"]:
         print(line)
     print()
 
-    from fastapi import FastAPI
+from fastapi import FastAPI
+from pydantic import BaseModel
+from graph import graph  # your LangGraph
 
-    app = FastAPI()
+app = FastAPI()
+
+
+# Pydantic model for request body
+class Message(BaseModel):
+    content: str
+
+
+@app.post("/chat")
+async def chat(messages: list[Message]):
+    # Convert to HumanMessage dict for LangGraph
+    human_messages = [{"content": m.content} for m in messages]
+
+    # Invoke your graph
+    result = graph.invoke({"messages": human_messages})
+
+    # Return AI responses
+    return {"messages": [m.content for m in result["messages"]]}
