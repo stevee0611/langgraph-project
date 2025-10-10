@@ -37,20 +37,11 @@ from langchain_core.messages import HumanMessage
 app = FastAPI()
 
 @app.post("/chat")
-async def chat(request: Request):
-    try:
-        data = await request.json()
-        print("Received:", data)
-        messages = [HumanMessage(content=data.get("message", "No message provided"))]
-        result = graph.invoke({"messages": messages}, config)
-        print("Response:", result)
-        last_message = result.get("messages", [])
-        if last_message:
-            return {"response": last_message[-1].content}
-        else:
-            return {"response": "No messages returned by graph."}
-    except Exception as e:
-        print("Error:", e)
-        return {"error": str(e)}
+def chat(request: dict):
+    print("Received:", request)
+    user_input = request.get("message")
+    result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
+    response = result["messages"][-1].content
+    return {"response": response}
 
 
