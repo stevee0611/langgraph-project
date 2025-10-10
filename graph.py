@@ -22,13 +22,6 @@ builder.add_edge(START, 'chat')
 builder.add_edge('chat', END)
 graph = builder.compile(checkpointer=memory)
 
-conversation = [HumanMessage('What is my name and what do you recommend me to learn today?')]
-conversation = graph.invoke({"messages": conversation}, config)
-for m in conversation["messages"]:
-    print(f"=== {m.type.capitalize()} Message ===")
-    for line in textwrap.wrap(m.content, width=80):
-        print(line)
-    print()
 
 # --- FastAPI integration for deployment ---
 from fastapi import FastAPI, Request
