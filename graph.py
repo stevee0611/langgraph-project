@@ -30,3 +30,7 @@ for m in conversation["messages"]:
     for line in textwrap.wrap(m.content, width=80):
         print(line)
     print()
+
+    from fastapi import FastAPI
+
+    app = FastAPI()
