@@ -30,25 +30,27 @@ for m in conversation["messages"]:
         print(line)
     print()
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from graph import graph  # your LangGraph
+# --- FastAPI integration for deployment ---
+from fastapi import FastAPI, Request
+from langchain_core.messages import HumanMessage
 
 app = FastAPI()
 
-
-# Pydantic model for request body
-class Message(BaseModel):
-    content: str
-
-
 @app.post("/chat")
-async def chat(messages: list[Message]):
-    # Convert to HumanMessage dict for LangGraph
-    human_messages = [{"content": m.content} for m in messages]
+async def chat(request: Request):
+    try:
+        data = await request.json()
+        messages = data.get("messages", [])
 
-    # Invoke your graph
-    result = graph.invoke({"messages": human_messages})
+        # Convert plain text messages to HumanMessage objects
+        human_messages = [HumanMessage(content=m["content"]) for m in messages]
 
-    # Return AI responses
-    return {"messages": [m.content for m in result["messages"]]}
+        # Run your graph
+        result = graph.invoke({"messages": human_messages})
+
+        # Return only message texts
+        return {"messages": [m.content for m in result["messages"]]}
+    except Exception as e:
+        # For debugging (shows actual error in Railway logs)
+        return {"error": str(e)}
+
