@@ -40,17 +40,17 @@ app = FastAPI()
 async def chat(request: Request):
     try:
         data = await request.json()
-        messages = data.get("messages", [])
-
-        # Convert plain text messages to HumanMessage objects
-        human_messages = [HumanMessage(content=m["content"]) for m in messages]
-
-        # Run your graph
-        result = graph.invoke({"messages": human_messages})
-
-        # Return only message texts
-        return {"messages": [m.content for m in result["messages"]]}
+        print("Received:", data)
+        messages = [HumanMessage(content=data.get("message", "No message provided"))]
+        result = graph.invoke({"messages": messages})
+        print("Response:", result)
+        last_message = result.get("messages", [])
+        if last_message:
+            return {"response": last_message[-1].content}
+        else:
+            return {"response": "No messages returned by graph."}
     except Exception as e:
-        # For debugging (shows actual error in Railway logs)
+        print("Error:", e)
         return {"error": str(e)}
+
 
