@@ -42,7 +42,7 @@ async def chat(request: Request):
         data = await request.json()
         print("Received:", data)
         messages = [HumanMessage(content=data.get("message", "No message provided"))]
-        result = graph.invoke({"messages": messages})
+        result = graph.invoke({"messages": messages}, config)
         print("Response:", result)
         last_message = result.get("messages", [])
         if last_message:
