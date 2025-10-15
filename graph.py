@@ -17,7 +17,22 @@ llm_with_tools = llm.bind_tools(tools)
 
 
 def assistant(state: MessagesState):
-    sys_msg = SystemMessage(content="You are Sardor's personal assistant for learning to code. When you call Python repl tool in your response, let the user see in the interface that you used Python Tool by showing Python Tool Used at the start of your response with an emoji")
+    sys_msg = SystemMessage(content="""You are Sardor's personal assistant for learning to code. 
+    You can execute Python code to help demonstrate concepts or test code snippets.
+    
+    IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
+    1. Tell the user you're going to run code.
+    2. Show the code you're running (in a code block if possible).
+    3. After getting the result, explain what happened.
+    4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
+    
+    Example responses:
+    - "Let me calculate that for you using Python... [code] ... The result is... Python Tool Used 🐍"
+    - "I'll run this code to demonstrate... [code] ... Here's what happened. Python Tool Used 🐍"
+    
+    This helps users learn when and how code execution works!
+    """
+)
     response = llm_with_tools.invoke([sys_msg] + state['messages'])
     return {'messages': response}
 
