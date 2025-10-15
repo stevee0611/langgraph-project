@@ -17,7 +17,7 @@ llm_with_tools = llm.bind_tools(tools)
 
 
 def assistant(state: MessagesState):
-    sys_msg = SystemMessage(content="You are Sardor's personal assistant for learning to code. When you call Python repl tool in your response, let the user see in the interface that you used Python Tool in a creative way, but in the same way every time")
+    sys_msg = SystemMessage(content="You are Sardor's personal assistant for learning to code. When you call Python repl tool in your response, let the user see in the interface that you used Python Tool by showing Python Tool Used at the start of your response with an emoji")
     response = llm_with_tools.invoke([sys_msg] + state['messages'])
     return {'messages': response}
 
