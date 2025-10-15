@@ -35,10 +35,22 @@ from langgraph.graph import START, StateGraph, END
 
 from langgraph.checkpoint.redis import RedisSaver
 import os
-
+import redis
 # Get Redis URL from environment or use default
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-memory = RedisSaver.from_conn_string(redis_url)
+try:
+    # 1. Create the raw redis client instance
+    redis_client = redis.Redis.from_url(redis_url)
+    # 2. Pass the client to the RedisSaver
+    memory = RedisSaver(client=redis_client)
+    print(f"✅ RedisSaver initialized with URL: {redis_url.split('@')[-1]}") # Log URL without password
+except Exception as e:
+    print(f"❌ CRITICAL ERROR: Failed to initialize RedisSaver: {e}")
+    # If Redis is critical for your app, you might want to exit here too,
+    # or fall back to MemorySaver for local dev. For deployment, usually critical.
+    import sys
+    sys.exit(1)
+
 
 builder = StateGraph(MessagesState)
 builder.add_node('chat', assistant)
