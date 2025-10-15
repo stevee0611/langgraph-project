@@ -60,7 +60,8 @@ def chat(request: dict):
     print("Received:", request)
     user_input = request.get("message")
     thread_id = request.get("thread_id", "1")
-    result = graph.invoke({"messages": [HumanMessage(content=user_input)]},)
+    config = {"configurable": {"thread_id": thread_id}}
+    result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
     response = result["messages"][-1].content
     return {"response": response}
 
