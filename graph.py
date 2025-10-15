@@ -6,20 +6,46 @@ from langgraph.graph import MessagesState
 from langchain_core.messages import HumanMessage, SystemMessage
 import textwrap
 
+# Import tool utilities
+from langchain_community.tools import PythonREPLTool
+from langgraph.prebuilt import ToolNode
+
+# Initialize the Python REPL tool
+python_repl_tool = PythonREPLTool()
+tools = [python_repl_tool]
+llm_with_tools = llm.bind_tools(tools)
+
+
 def assistant(state: MessagesState):
-    sys_msg = SystemMessage(content="You are Sardor's personal assistant for learning to code")
-    response = llm.invoke([sys_msg] + state['messages'])
+    sys_msg = SystemMessage(content="You are Sardor's personal assistant for learning to code. When you call Python repl tool in your response, let the user see in the interface that you used Python Tool in a creative way, but in the same way every time")
+    response = llm_with_tools.invoke([sys_msg] + state['messages'])
     return {'messages': response}
+
+def should_continue(state: MessagesState):
+    messages = state['messages']
+    last_message = messages[-1]
+    # If there are tool calls, route to the tool node
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        return "tools"
+    # Otherwise, end the conversation
+    return END
+tool_node = ToolNode(tools)
+
 from langgraph.graph import START, StateGraph, END
 
-from langgraph.checkpoint.memory import MemorySaver
-memory = MemorySaver()
-config = {"configurable": {"thread_id": "1"}}
+from langgraph.checkpoint.redis import RedisSaver
+import os
+
+# Get Redis URL from environment or use default
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+memory = RedisSaver.from_conn_string(redis_url)
 
 builder = StateGraph(MessagesState)
 builder.add_node('chat', assistant)
+builder.add_node('tools', tool_node)  # THIS IS THE TOOL NODE
 builder.add_edge(START, 'chat')
-builder.add_edge('chat', END)
+builder.add_conditional_edges('chat', should_continue, ['tools', END])
+builder.add_edge('tools', 'chat')
 graph = builder.compile(checkpointer=memory)
 
 
@@ -33,7 +59,8 @@ app = FastAPI()
 def chat(request: dict):
     print("Received:", request)
     user_input = request.get("message")
-    result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
+    thread_id = request.get("thread_id", "1")
+    result = graph.invoke({"messages": [HumanMessage(content=user_input)]},)
     response = result["messages"][-1].content
     return {"response": response}
 

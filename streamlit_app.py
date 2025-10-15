@@ -15,7 +15,7 @@ REQUEST_TIMEOUT = 30  # seconds
 
 # --------- UI SETUP ---------
 st.set_page_config(page_title="LangGraph Chat", page_icon="🤖")
-st.title("🤖 LangGraph Chat Assistant")
+st.title("🤖 Sardor's Personal Assistant")
 st.write("Ask your AI assistant anything — responses are plain text.")
 
 # --------- Session State ---------
