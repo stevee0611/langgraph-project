@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 import textwrap
 
 # Import tool utilities
-from langchain_community.tools import PythonREPLTool
+from langchain_experimental.tools.python.tool import PythonREPLTool
 from langgraph.prebuilt import ToolNode
 
 # Initialize the Python REPL tool
