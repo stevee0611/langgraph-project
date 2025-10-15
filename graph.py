@@ -39,10 +39,7 @@ import redis
 # Get Redis URL from environment or use default
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 try:
-    # 1. Create the raw redis client instance
-    redis_client = redis.Redis.from_url(redis_url)
-    # 2. Pass the client to the RedisSaver
-    memory = RedisSaver(client=redis_client)
+    memory = RedisSaver(conn_string=redis_url)
     print(f"✅ RedisSaver initialized with URL: {redis_url.split('@')[-1]}") # Log URL without password
 except Exception as e:
     print(f"❌ CRITICAL ERROR: Failed to initialize RedisSaver: {e}")
