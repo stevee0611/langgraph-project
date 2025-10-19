@@ -2,6 +2,7 @@
 import os
 import requests
 import streamlit as st
+import uuid
 from typing import Any, Dict, List
 
 # -------- CONFIG --------
@@ -15,10 +16,13 @@ REQUEST_TIMEOUT = 30  # seconds
 
 # --------- UI SETUP ---------
 st.set_page_config(page_title="LangGraph Chat", page_icon="🤖")
-st.title("🤖 Sardor's Personal Assistant")
-st.write("Ask your AI assistant anything — responses are plain text.")
+st.title("🤖 Personal Coding Assistant")
+st.write("Ask your AI assistant anything about coding!")
 
 # --------- Session State ---------
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
 if "messages" not in st.session_state:
     # list of {"role": "user"|"assistant", "message": str}
     st.session_state.messages: List[Dict[str, str]] = []
@@ -77,7 +81,13 @@ def send_message_to_backend(user_input: str) -> str:
     POST to BACKEND_URL with {"message": user_input}.
     Returns the assistant reply (plain string) or an error message.
     """
-    payload = {"message": user_input}
+    payload = {
+        "message": user_input,
+        "session_id": st.session_state.session_id,  # Send unique session ID
+        # Alternative field names your backend might expect:
+        # "thread_id": st.session_state.session_id,
+        # "user_id": st.session_state.session_id,
+    }
     try:
         resp = requests.post(BACKEND_URL, json=payload, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()

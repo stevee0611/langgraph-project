@@ -17,7 +17,7 @@ llm_with_tools = llm.bind_tools(tools)
 
 
 def assistant(state: MessagesState):
-    sys_msg = SystemMessage(content="""You are Sardor's personal assistant for learning to code. 
+    sys_msg = SystemMessage(content="""You are personal assistant for learning to code. 
     You can execute Python code to help demonstrate concepts or test code snippets.
     
     IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
@@ -83,7 +83,7 @@ app = FastAPI()
 def chat(request: dict):
     print("Received:", request)
     user_input = request.get("message")
-    thread_id = request.get("thread_id", "1")
+    thread_id = request.get("session_id") or request.get("thread_id") or "default-thread"  # Accept both
     config = {"configurable": {"thread_id": thread_id}}
     result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
     response = result["messages"][-1].content
