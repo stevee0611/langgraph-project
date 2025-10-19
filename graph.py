@@ -1,6 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_openai import ChatOpenAI
+try:
+    from langchain.callbacks.manager import CallbackManager
+    print("✅ SUCCESS: langchain.callbacks was imported successfully.")
+except ImportError as e:
+    print(f"❌ CRITICAL FAILURE: Could not import from langchain.callbacks. Error: {e}")
 llm = ChatOpenAI(model="gpt-3.5-turbo")
 from langgraph.graph import MessagesState
 from langchain_core.messages import HumanMessage, SystemMessage
