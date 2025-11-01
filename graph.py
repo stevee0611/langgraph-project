@@ -136,13 +136,6 @@ tools = [python_repl_tool, web_tool]
 llm_with_tools = llm.bind_tools(tools)
 
 def assistant(state: GraphState):
-    """
-    Main assistant logic. Uses retrieved PDF documents, web results, and general LLM knowledge.
-    Clearly tells the user which source the answer comes from.
-    """
-    print("---CALLING LLM---")
-
-    # Prepare context from retrieved documents
     contexts = []
 
     if state.get("documents"):
@@ -155,44 +148,33 @@ def assistant(state: GraphState):
 
     combined_context = "\n\n".join(contexts) if contexts else None
 
-    # --- System message construction ---
     if combined_context:
-        # Keep the original RAG prompt logic but add web context and source instruction
         sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
-        You have access to documents and/or web search results relevant to the user's question. 
-        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from by using:
+        You have access to documents and/or web search results relevant to the user's question.
+        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from:
             - "Information retrieved from documents 📄" for PDF content
             - "Information retrieved from the web 🌐" for web content
-        If you answer from your general knowledge without using retrieved content, state: "General response based on knowledge."
-
-        Use the following context to answer the user's question. If the context does not have the answer, say you don't know.
+            - "General response based on knowledge" if neither is used.
 
         CONTEXT:
         {combined_context}
 
-        ---
-        You can also execute Python code to help demonstrate concepts or test code snippets.
+        You can also execute Python code to demonstrate or test concepts.
 
-        IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
-        1. Tell the user you're going to run code.
-        2. Show the code you're running (in a code block if possible).
-        3. After getting the result, explain what happened.
-        4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
+        IMPORTANT: When you use the Python REPL tool to execute code:
+        1. Tell the user you're running code.
+        2. Show the code (in a code block).
+        3. Explain the result.
+        4. Conclude with "Python Tool Used 🐍".
         """)
     else:
-        # Keep the original general-purpose system message
-        sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code. 
-        You can execute Python code to help demonstrate concepts or test code snippets.
-
-        IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
-        1. Tell the user you're going to run code.
-        2. Show the code you're running (in a code block if possible).
-        3. After getting the result, explain what happened.
-        4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
+        # fallback general prompt
+        sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code.
+        You can execute Python code to demonstrate or test concepts.
+        Follow the Python REPL tool rules if you use it.
         """)
 
     sys_msg = SystemMessage(content=sys_msg_content)
-
     response = llm_with_tools.invoke([sys_msg] + state['messages'])
     return {'messages': [response]}
 
