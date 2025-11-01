@@ -6,6 +6,7 @@ from langchain_core.documents import Document
 from langgraph.graph import MessagesState
 from langchain_core.messages import HumanMessage, SystemMessage
 import textwrap
+from langchain_tavily import TavilySearch
 
 class GraphState(MessagesState):
     """
@@ -108,26 +109,53 @@ def retrieve(state: GraphState):
     # Add them to the state
     return {"documents": docs}
 
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")  # type: str
+tavily_tool = TavilySearch(
+    api_key=TAVILY_API_KEY,
+    max_results=5,
+    topic="general"
+)
+
+def web_retrieve(query: str):
+    results = tavily_tool.invoke({"query": query})
+    # Now wrap results as Documents (your import)
+    return [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
+
 
 def assistant(state: GraphState):
     """
-    The main assistant logic. It now uses the retrieved documents to answer.
+    Main assistant logic. Uses retrieved PDF documents, web results, and general LLM knowledge.
+    Clearly tells the user which source the answer comes from.
     """
     print("---CALLING LLM---")
 
-    # Check if documents were retrieved
-    if state.get("documents"):
-        # Create the prompt context from retrieved documents
-        context = "\n---\n".join([doc.page_content for doc in state["documents"]])
+    # Prepare context from retrieved documents
+    contexts = []
 
-        # RAG-specific system message
+    if state.get("documents"):
+        pdf_context = "\n---\n".join([doc.page_content for doc in state["documents"]])
+        contexts.append(f"[Documents 📄]\n{pdf_context}")
+
+    if state.get("web_documents"):
+        web_context = "\n---\n".join([doc.page_content for doc in state["web_documents"]])
+        contexts.append(f"[Web 🌐]\n{web_context}")
+
+    combined_context = "\n\n".join(contexts) if contexts else None
+
+    # --- System message construction ---
+    if combined_context:
+        # Keep the original RAG prompt logic but add web context and source instruction
         sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
-        You have access to documents relevant to the user's question. When you use information from these documents to answer, you MUST explicitly tell the user that the answer is based on retrieved documents.
+        You have access to documents and/or web search results relevant to the user's question. 
+        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from by using:
+            - "Information retrieved from documents 📄" for PDF content
+            - "Information retrieved from the web 🌐" for web content
+        If you answer from your general knowledge without using retrieved content, state: "General response based on knowledge."
 
         Use the following context to answer the user's question. If the context does not have the answer, say you don't know.
 
-        CONTEXT (retrieved documents):
-        {context}
+        CONTEXT:
+        {combined_context}
 
         ---
         You can also execute Python code to help demonstrate concepts or test code snippets.
@@ -137,10 +165,9 @@ def assistant(state: GraphState):
         2. Show the code you're running (in a code block if possible).
         3. After getting the result, explain what happened.
         4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
-        5. If you use retrieved documents, **explicitly state: "Information retrieved from documents 📄"**
         """)
     else:
-        # Original general-purpose system message
+        # Keep the original general-purpose system message
         sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code. 
         You can execute Python code to help demonstrate concepts or test code snippets.
 
@@ -187,25 +214,32 @@ except Exception as e:
 
 builder = StateGraph(GraphState)
 
-builder.add_node('retrieve', retrieve)
-builder.add_node('chat', assistant)
-builder.add_node('tools', tool_node)
+# Nodes
+builder.add_node('retrieve', retrieve)         # PDF retrieval
+builder.add_node('web_retrieve', web_retrieve) # Web retrieval (new)
+builder.add_node('chat', assistant)            # Assistant with combined context
+builder.add_node('tools', tool_node)           # Python REPL or other tools
 
-# The entry point is now a conditional router
+# Entry point routing
 builder.add_conditional_edges(
     START,
     route_question,
     {
         "retrieve": "retrieve",
+        "web_retrieve": "web_retrieve",
         "chat": "chat",
     }
 )
+
+# Connect retrieval nodes to chat
 builder.add_edge('retrieve', 'chat')
+builder.add_edge('web_retrieve', 'chat')
+
+# Conditional routing from chat to tools or END
 builder.add_conditional_edges('chat', should_continue, ['tools', END])
 builder.add_edge('tools', 'chat')
+
 graph = builder.compile(checkpointer=memory)
-
-
 
 
 # --- FastAPI integration for deployment ---
