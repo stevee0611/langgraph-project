@@ -1,4 +1,6 @@
 from dotenv import load_dotenv
+from langchain.chains.hyde.prompts import web_search
+
 load_dotenv()
 from langchain_openai import ChatOpenAI
 from typing import List
@@ -7,6 +9,7 @@ from langgraph.graph import MessagesState
 from langchain_core.messages import HumanMessage, SystemMessage
 import textwrap
 from langchain_tavily import TavilySearch
+from langchain.agents import Tool
 
 class GraphState(MessagesState):
     """
@@ -47,9 +50,7 @@ retriever = vector_store.as_retriever()
 
 
 # Initialize the Python REPL tool
-python_repl_tool = PythonREPLTool()
-tools = [python_repl_tool]
-llm_with_tools = llm.bind_tools(tools)
+
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
@@ -121,6 +122,18 @@ def web_retrieve(query: str):
     # Now wrap results as Documents (your import)
     return [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
 
+web_tool = Tool(
+    name="Web_Search",
+    func=web_retrieve,  # your existing function returning Documents
+    description=(
+        "Use this to search the web for questions not answered by uploaded documents. "
+        "Return relevant information in text form."
+    )
+)
+
+python_repl_tool = PythonREPLTool()
+tools = [python_repl_tool, web_tool]
+llm_with_tools = llm.bind_tools(tools)
 
 def assistant(state: GraphState):
     """
