@@ -1,47 +1,163 @@
 from dotenv import load_dotenv
 load_dotenv()
 from langchain_openai import ChatOpenAI
+from typing import List
+from langchain_core.documents import Document
+from langgraph.graph import MessagesState
+from langchain_core.messages import HumanMessage, SystemMessage
+import textwrap
+
+class GraphState(MessagesState):
+    """
+    Represents the state of our graph.
+
+    Attributes:
+        messages: The history of messages.
+        documents: A list of documents retrieved from the vector store.
+    """
+    documents: List[Document]
+
 try:
     from langchain.callbacks.manager import CallbackManager
     print("✅ SUCCESS: langchain.callbacks was imported successfully.")
 except ImportError as e:
     print(f"❌ CRITICAL FAILURE: Could not import from langchain.callbacks. Error: {e}")
 llm = ChatOpenAI(model="gpt-3.5-turbo")
-from langgraph.graph import MessagesState
-from langchain_core.messages import HumanMessage, SystemMessage
-import textwrap
 
 # Import tool utilities
 from langchain_experimental.tools.python.tool import PythonREPLTool
 from langgraph.prebuilt import ToolNode
+import os
+from qdrant_client import QdrantClient
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import Qdrant
+
+embeddings = OpenAIEmbeddings()
+qdrant_client = QdrantClient(
+    url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY"),
+)
+vector_store = Qdrant(
+    client=qdrant_client,
+    collection_name="my_docs",
+    embeddings=embeddings,
+)
+retriever = vector_store.as_retriever()
+
 
 # Initialize the Python REPL tool
 python_repl_tool = PythonREPLTool()
 tools = [python_repl_tool]
 llm_with_tools = llm.bind_tools(tools)
 
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.pydantic_v1 import BaseModel, Field
+from typing import Literal
 
-def assistant(state: MessagesState):
-    sys_msg = SystemMessage(content="""You are personal assistant for learning to code. 
-    You can execute Python code to help demonstrate concepts or test code snippets.
-    
-    IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
-    1. Tell the user you're going to run code.
-    2. Show the code you're running (in a code block if possible).
-    3. After getting the result, explain what happened.
-    4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
-    
-    Example responses:
-    - "Let me calculate that for you using Python... [code] ... The result is... Python Tool Used 🐍"
-    - "I'll run this code to demonstrate... [code] ... Here's what happened. Python Tool Used 🐍"
-    
-    This helps users learn when and how code execution works!
-    """
+class RouteQuery(BaseModel):
+    """Route a user query to the appropriate tool."""
+    datasource: Literal["vectorstore", "chat"] = Field(
+        ...,
+        description="Given a user query, route it to `vectorstore` if it requires searching for specific documents, or to `chat` for all other cases.",
+    )
+# Create a prompt template and bind it to the LLM with our desired output structure.
+structured_llm = llm.with_structured_output(RouteQuery)
+router_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system",
+         "You are an expert at routing a user query to a vectorstore or to a general chat. Use the vectorstore for questions that require fetching specific information from documents."),
+        ("human", "{question}"),
+    ]
 )
-    response = llm_with_tools.invoke([sys_msg] + state['messages'])
-    return {'messages': response}
+question_router = router_prompt | structured_llm
 
-def should_continue(state: MessagesState):
+
+def route_question(state: GraphState):
+    """
+    Routes the user's question to determine if we need to retrieve documents or not.
+    """
+    print("---ROUTING QUESTION---")
+    question = state["messages"][-1].content
+
+    # Call the router
+    result = question_router.invoke({"question": question})
+
+    if result.datasource == 'vectorstore':
+        print("---ROUTING TO RETRIEVE---")
+        return "retrieve"
+    else:
+        print("---ROUTING TO CHAT---")
+        return "chat"
+
+def retrieve(state: GraphState):
+    """
+    Retrieves documents from the vector store.
+
+    Args:
+        state (GraphState): The current graph state.
+
+    Returns:
+        GraphState: New state with retrieved documents.
+    """
+    print("---RETRIEVING DOCUMENTS---")
+    # Get the most recent question
+    question = state["messages"][-1].content
+    # Retrieve documents
+    docs = retriever.invoke(question)
+    print("---DOCUMENTS RETRIEVED---")
+    # Add them to the state
+    return {"documents": docs}
+
+
+def assistant(state: GraphState):
+    """
+    The main assistant logic. It now uses the retrieved documents to answer.
+    """
+    print("---CALLING LLM---")
+
+    # Check if documents were retrieved
+    if state.get("documents"):
+        # Create the prompt context from retrieved documents
+        context = "\n---\n".join([doc.page_content for doc in state["documents"]])
+
+        # RAG-specific system message
+        sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
+        You have access to documents relevant to the user's question. When you use information from these documents to answer, you MUST explicitly tell the user that the answer is based on retrieved documents.
+
+        Use the following context to answer the user's question. If the context does not have the answer, say you don't know.
+
+        CONTEXT (retrieved documents):
+        {context}
+
+        ---
+        You can also execute Python code to help demonstrate concepts or test code snippets.
+
+        IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
+        1. Tell the user you're going to run code.
+        2. Show the code you're running (in a code block if possible).
+        3. After getting the result, explain what happened.
+        4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
+        5. If you use retrieved documents, **explicitly state: "Information retrieved from documents 📄"**
+        """)
+    else:
+        # Original general-purpose system message
+        sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code. 
+        You can execute Python code to help demonstrate concepts or test code snippets.
+
+        IMPORTANT: When you use the Python REPL tool to execute code, you MUST:
+        1. Tell the user you're going to run code.
+        2. Show the code you're running (in a code block if possible).
+        3. After getting the result, explain what happened.
+        4. **Finally, if you used the Python REPL tool, conclude your response with the exact phrase: "Python Tool Used 🐍"**
+        """)
+
+    sys_msg = SystemMessage(content=sys_msg_content)
+
+    response = llm_with_tools.invoke([sys_msg] + state['messages'])
+    return {'messages': [response]}
+
+
+def should_continue(state: GraphState):
     messages = state['messages']
     last_message = messages[-1]
     # If there are tool calls, route to the tool node
@@ -56,11 +172,11 @@ from langgraph.graph import START, StateGraph, END
 from langgraph.checkpoint.redis import RedisSaver
 import os
 import redis
-# Get Redis URL from environment or use default
+# Get Redis URL from the environment or use default
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 try:
     memory = RedisSaver(redis_url)
-    print(f"✅ RedisSaver initialized with URL: {redis_url.split('@')[-1]}") # Log URL without password
+    print(f"✅ RedisSaver initialized with URL: {redis_url.split('@')[-1]}") # Log URL without a password
 except Exception as e:
     print(f"❌ CRITICAL ERROR: Failed to initialize RedisSaver: {e}")
     # If Redis is critical for your app, you might want to exit here too,
@@ -69,13 +185,27 @@ except Exception as e:
     sys.exit(1)
 
 
-builder = StateGraph(MessagesState)
+builder = StateGraph(GraphState)
+
+builder.add_node('retrieve', retrieve)
 builder.add_node('chat', assistant)
-builder.add_node('tools', tool_node)  # THIS IS THE TOOL NODE
-builder.add_edge(START, 'chat')
+builder.add_node('tools', tool_node)
+
+# The entry point is now a conditional router
+builder.add_conditional_edges(
+    START,
+    route_question,
+    {
+        "retrieve": "retrieve",
+        "chat": "chat",
+    }
+)
+builder.add_edge('retrieve', 'chat')
 builder.add_conditional_edges('chat', should_continue, ['tools', END])
 builder.add_edge('tools', 'chat')
 graph = builder.compile(checkpointer=memory)
+
+
 
 
 # --- FastAPI integration for deployment ---
