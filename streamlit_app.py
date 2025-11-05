@@ -102,12 +102,13 @@ def send_message(user_input: str):
 
         # Get streaming response
         for partial_response in send_message_to_backend(user_input):
-            message_placeholder.markdown(partial_response + "▌")
-            time.sleep(0.01)
+            # Preserve formatting in markdown
+        message_placeholder.markdown(partial_response + "▌", unsafe_allow_html=True)
+        time.sleep(0.01)
 
         # Show final response
         final_response = partial_response if 'partial_response' in locals() else "No response received"
-        message_placeholder.markdown(final_response)
+        message_placeholder.markdown(final_response, unsafe_allow_html=True)
 
         # Add to message history
         st.session_state.messages.append({"role": "assistant", "message": final_response})

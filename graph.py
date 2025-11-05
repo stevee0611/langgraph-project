@@ -151,10 +151,10 @@ def assistant(state: GraphState):
     if combined_context:
         sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
         You have access to documents and/or web search results relevant to the user's question.
-        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from:
-            - "Information retrieved from documents 📄" for PDF content
-            - "Information retrieved from the web 🌐" for web content
-            - "General response based on knowledge" if neither is used.
+        When you use information from these sources to answer, you MUST start your response with one of these:
+            - "📄 [From Documents]: " for PDF content
+            - "🌐 [From Web]: " for web content
+            - "💡 [General Knowledge]: " if neither is used
 
         CONTEXT:
         {combined_context}
@@ -162,16 +162,20 @@ def assistant(state: GraphState):
         You can also execute Python code to demonstrate or test concepts.
 
         IMPORTANT: When you use the Python REPL tool to execute code:
-        1. Tell the user you're running code.
-        2. Show the code (in a code block).
-        3. Explain the result.
-        4. Conclude with "Python Tool Used 🐍".
+        1. Start with "🐍 [Python Tool]: I'm executing the following code:"
+        2. Show the code (in a code block)
+        3. Explain the result
+        4. End with "--- End Python Tool Output ---"
         """)
     else:
-        # fallback general prompt
         sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code.
-        You can execute Python code to demonstrate or test concepts.
-        Follow the Python REPL tool rules if you use it.
+        Start your responses with "💡 [General Knowledge]: " unless you're using the Python tool.
+        
+        When using the Python REPL tool:
+        1. Start with "🐍 [Python Tool]: I'm executing the following code:"
+        2. Show the code (in a code block)
+        3. Explain the result
+        4. End with "--- End Python Tool Output ---"
         """)
 
     sys_msg = SystemMessage(content=sys_msg_content)
@@ -252,5 +256,3 @@ def chat(request: dict):
     result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
     response = result["messages"][-1].content
     return {"response": response}
-
-
