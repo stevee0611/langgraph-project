@@ -103,8 +103,8 @@ def send_message(user_input: str):
         # Get streaming response
         for partial_response in send_message_to_backend(user_input):
             # Preserve formatting in markdown
-        message_placeholder.markdown(partial_response + "▌", unsafe_allow_html=True)
-        time.sleep(0.01)
+            message_placeholder.markdown(partial_response + "▌", unsafe_allow_html=True)
+            time.sleep(0.01)
 
         # Show final response
         final_response = partial_response if 'partial_response' in locals() else "No response received"
