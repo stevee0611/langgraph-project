@@ -67,13 +67,14 @@ structured_llm = llm.with_structured_output(RouteQuery)
 router_prompt = ChatPromptTemplate.from_messages(
     [
         ("system",
-         """You are an expert at routing user queries to the appropriate source.
+         """You are an expert at routing coding-related queries to the appropriate source.
          Route queries to:
-         - 'vectorstore' for questions about uploaded documents
-         - 'web' for current events, latest versions, recent updates, or real-world information
-         - 'chat' for general coding concepts or theoretical questions
+         - 'vectorstore' for questions about programming documentation or code examples from uploaded documents
+         - 'web' for questions about latest programming languages, frameworks, libraries, coding tools, or technical documentation
+         - 'chat' for general programming concepts, algorithms, code review, or debugging
          
-         ALWAYS route questions about latest versions, current events, or recent updates to 'web'."""),
+         ONLY accept programming and software development related questions.
+         For non-coding questions, route to 'chat' which will redirect to coding topics."""),
         ("human", "{question}"),
     ]
 )
@@ -122,8 +123,10 @@ def retrieve(state: GraphState):
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")  # type: str
 tavily_tool = TavilySearch(
     api_key=TAVILY_API_KEY,
-    max_results=5,
-    topic="general"
+    max_results=7,
+    topic="technology",
+    include_domains=["github.com", "techcrunch.com", "arxiv.org", "openai.com", "huggingface.co"],
+    search_depth="advanced"
 )
 
 def web_retrieve(state: GraphState):
@@ -174,32 +177,57 @@ def assistant(state: GraphState):
     combined_context = "\n\n".join(contexts) if contexts else None
 
     if combined_context:
-        sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
-        You have access to documents and/or web search results relevant to the user's question.
-        When you use information from these sources to answer, you MUST start your response with one of these:
-            - "📄 [From Documents]: " for PDF content
-            - "🌐 [From Web]: " for web content
+        sys_msg_content = textwrap.dedent(f"""You are a coding-focused AI assistant that helps with programming questions, code reviews, debugging, and software development concepts.
+        ONLY answer questions related to:
+        - Programming and coding
+        - Software development
+        - Computer science concepts
+        - Development tools and technologies
+        - Code debugging and optimization
+        For non-coding questions, politely redirect users to ask programming-related questions.
+
+        When using information sources, you MUST start your response with one of these:
+            - "📄 [From Documents]: " when using information from PDF documentation
+            - "🌐 [From Web]: " when using web-searched coding resources
+            - "💡 [General Knowledge]: " for general programming knowledge
+            - "🐍 [Python Tool]: " when executing code
 
         CONTEXT:
         {combined_context}
 
-        You can also execute Python code to demonstrate or test concepts.
-
-        IMPORTANT: When you use the Python REPL tool to execute code:
+        For code demonstrations:
         1. Start with "🐍 [Python Tool]: I'm executing the following code:"
-        2. Show the code (in a code block)
-        3. Explain the result
+        2. Show the code in a code block
+        3. Explain the output and concepts
         4. End with "--- End Python Tool Output ---"
+
+        REQUIRED: End EVERY response with:
+        "---
+        Tools used in this response: [list only the tools used: Documents/Web Search/Python Tool/None]"
         """)
     else:
-        sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code.
-        Start your responses with "💡 [General Knowledge]: " unless you're using the Python tool.
-        
-        When using the Python REPL tool:
+        sys_msg_content = textwrap.dedent("""You are a coding-focused AI assistant that helps with programming questions, code reviews, debugging, and software development concepts.
+        ONLY answer questions related to:
+        - Programming and coding
+        - Software development
+        - Computer science concepts
+        - Development tools and technologies
+        - Code debugging and optimization
+        For non-coding questions, politely redirect users to ask programming-related questions.
+
+        Start responses with:
+        - "💡 [General Knowledge]: " for general programming concepts
+        - "🐍 [Python Tool]: " when executing code
+
+        For code demonstrations:
         1. Start with "🐍 [Python Tool]: I'm executing the following code:"
-        2. Show the code (in a code block)
-        3. Explain the result
+        2. Show the code in a code block
+        3. Explain the output and concepts
         4. End with "--- End Python Tool Output ---"
+
+        REQUIRED: End EVERY response with:
+        "---
+        Tools used in this response: [list only the tools used: Documents/Web Search/Python Tool/None]"
         """)
 
     sys_msg = SystemMessage(content=sys_msg_content)
