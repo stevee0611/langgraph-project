@@ -62,31 +62,24 @@ def send_message_to_backend(user_input: str) -> str:
     }
 
     try:
-        with requests.post(BACKEND_URL, json=payload, stream=True, timeout=REQUEST_TIMEOUT) as r:
-            r.raise_for_status()
+        response = requests.post(BACKEND_URL, json=payload, stream=True, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
 
-            message_placeholder = st.empty()
-            full_response = ""
-
-            # Show thinking indicator
-            thinking_placeholder = st.empty()
-            thinking_placeholder.markdown("*Thinking...*")
-
-            for line in r.iter_lines():
-                if line:
-                    try:
-                        json_response = json.loads(line)
-                        chunk = json_response.get('content', '')
+        full_response = ""
+        for line in response.iter_lines():
+            if line:
+                try:
+                    json_response = json.loads(line.decode('utf-8'))
+                    # Extract the actual content from the response
+                    chunk = extract_reply_from_backend(json_response)
+                    if chunk:
                         full_response += chunk
-                        message_placeholder.markdown(full_response + "▌")
-                        time.sleep(0.01)  # Add small delay for more natural typing effect
-                    except json.JSONDecodeError:
-                        continue
+                        # Yield the partial response
+                        yield full_response
+                except json.JSONDecodeError:
+                    continue
 
-            # Remove thinking indicator
-            thinking_placeholder.empty()
-            message_placeholder.markdown(full_response)
-            return full_response
+        return full_response if full_response else "No response received"
 
     except requests.exceptions.RequestException as e:
         return f"Network error: {e}"
@@ -94,18 +87,30 @@ def send_message_to_backend(user_input: str) -> str:
         return f"Unexpected error: {e}"
 
 def send_message(user_input: str):
-    # Immediately display user message
-    user_message = st.chat_message("user")
-    user_message.write(user_input)
+    # Display user message
+    with st.chat_message("user"):
+        st.write(user_input)
 
     # Add to message history
     st.session_state.messages.append({"role": "user", "message": user_input})
 
-    # Create assistant message container before API call
-    assistant_message = st.chat_message("assistant")
-    with assistant_message:
-        ai_reply = send_message_to_backend(user_input)
-        st.session_state.messages.append({"role": "assistant", "message": ai_reply})
+    # Display assistant message
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        # Show initial thinking indicator
+        message_placeholder.markdown("*Thinking...*")
+
+        # Get streaming response
+        for partial_response in send_message_to_backend(user_input):
+            message_placeholder.markdown(partial_response + "▌")
+            time.sleep(0.01)
+
+        # Show final response
+        final_response = partial_response if 'partial_response' in locals() else "No response received"
+        message_placeholder.markdown(final_response)
+
+        # Add to message history
+        st.session_state.messages.append({"role": "assistant", "message": final_response})
 
 # Display message history first
 for msg in st.session_state.messages:
