@@ -67,7 +67,13 @@ structured_llm = llm.with_structured_output(RouteQuery)
 router_prompt = ChatPromptTemplate.from_messages(
     [
         ("system",
-         "You are an expert at routing a user query to a vectorstore or to a general chat. Use the vectorstore for questions that require fetching specific information from documents."),
+         """You are an expert at routing user queries to the appropriate source.
+         Route queries to:
+         - 'vectorstore' for questions about uploaded documents
+         - 'web' for current events, latest versions, recent updates, or real-world information
+         - 'chat' for general coding concepts or theoretical questions
+         
+         ALWAYS route questions about latest versions, current events, or recent updates to 'web'."""),
         ("human", "{question}"),
     ]
 )
@@ -122,10 +128,24 @@ tavily_tool = TavilySearch(
 
 def web_retrieve(state: GraphState):
     query = state["messages"][-1].content
-    results = tavily_tool.invoke({"query": query})
-    # Now wrap results as Documents (your import)
-    docs = [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
-    return {"web_documents": docs}
+    try:
+        results = tavily_tool.invoke({"query": query})
+        if results and "results" in results:
+            docs = [Document(page_content=item["content"], metadata={"url": item["url"]})
+                   for item in results["results"] if item.get("content")]
+            if docs:
+                return {"web_documents": docs}
+        # If no results, include a message in the web documents
+        return {"web_documents": [Document(
+            page_content="I apologize, but I couldn't find specific information from web sources. "
+                        "Please try rephrasing your question or ask something else.",
+            metadata={"url": "none"})]}
+    except Exception as e:
+        print(f"Web search error: {e}")
+        return {"web_documents": [Document(
+            page_content="I encountered an error while searching the web. "
+                        "Please try again or rephrase your question.",
+            metadata={"url": "none"})]}
 
 web_tool = Tool(
     name="Web_Search",
@@ -159,7 +179,6 @@ def assistant(state: GraphState):
         When you use information from these sources to answer, you MUST start your response with one of these:
             - "📄 [From Documents]: " for PDF content
             - "🌐 [From Web]: " for web content
-            - "💡 [General Knowledge]: " if neither is used
 
         CONTEXT:
         {combined_context}
