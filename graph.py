@@ -58,23 +58,16 @@ from typing import Literal
 
 class RouteQuery(BaseModel):
     """Route a user query to the appropriate tool."""
-    datasource: Literal["vectorstore", "web", "chat"] = Field(
+    datasource: Literal["vectorstore", "chat"] = Field(
         ...,
-        description="Route to: `vectorstore` for document searches, `web` for current info, or `chat` for general questions.",
+        description="Given a user query, route it to `vectorstore` if it requires searching for specific documents, or to `chat` for all other cases.",
     )
 # Create a prompt template and bind it to the LLM with our desired output structure.
 structured_llm = llm.with_structured_output(RouteQuery)
 router_prompt = ChatPromptTemplate.from_messages(
     [
         ("system",
-         """You are an expert at routing coding-related queries to the appropriate source.
-         Route queries to:
-         - 'vectorstore' for questions about programming documentation or code examples from uploaded documents
-         - 'web' for questions about latest programming languages, frameworks, libraries, coding tools, or technical documentation
-         - 'chat' for general programming concepts, algorithms, code review, or debugging
-         
-         ONLY accept programming and software development related questions.
-         For non-coding questions, route to 'chat' which will redirect to coding topics."""),
+         "You are an expert at routing a user query to a vectorstore or to a general chat. Use the vectorstore for questions that require fetching specific information from documents."),
         ("human", "{question}"),
     ]
 )
@@ -83,7 +76,7 @@ question_router = router_prompt | structured_llm
 
 def route_question(state: GraphState):
     """
-    Routes the user's question to determine if we need to retrieve documents, search web, or chat.
+    Routes the user's question to determine if we need to retrieve documents or not.
     """
     print("---ROUTING QUESTION---")
     question = state["messages"][-1].content
@@ -94,9 +87,6 @@ def route_question(state: GraphState):
     if result.datasource == 'vectorstore':
         print("---ROUTING TO RETRIEVE---")
         return "retrieve"
-    elif result.datasource == 'web':
-        print("---ROUTING TO WEB SEARCH---")
-        return "web_retrieve"
     else:
         print("---ROUTING TO CHAT---")
         return "chat"
@@ -123,32 +113,14 @@ def retrieve(state: GraphState):
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")  # type: str
 tavily_tool = TavilySearch(
     api_key=TAVILY_API_KEY,
-    max_results=7,
-    topic="technology",
-    include_domains=["github.com", "techcrunch.com", "arxiv.org", "openai.com", "huggingface.co"],
-    search_depth="advanced"
+    max_results=5,
+    topic="general"
 )
 
-def web_retrieve(state: GraphState):
-    query = state["messages"][-1].content
-    try:
-        results = tavily_tool.invoke({"query": query})
-        if results and "results" in results:
-            docs = [Document(page_content=item["content"], metadata={"url": item["url"]})
-                   for item in results["results"] if item.get("content")]
-            if docs:
-                return {"web_documents": docs}
-        # If no results, include a message in the web documents
-        return {"web_documents": [Document(
-            page_content="I apologize, but I couldn't find specific information from web sources. "
-                        "Please try rephrasing your question or ask something else.",
-            metadata={"url": "none"})]}
-    except Exception as e:
-        print(f"Web search error: {e}")
-        return {"web_documents": [Document(
-            page_content="I encountered an error while searching the web. "
-                        "Please try again or rephrase your question.",
-            metadata={"url": "none"})]}
+def web_retrieve(query: str):
+    results = tavily_tool.invoke({"query": query})
+    # Now wrap results as Documents (your import)
+    return [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
 
 web_tool = Tool(
     name="Web_Search",
@@ -177,57 +149,29 @@ def assistant(state: GraphState):
     combined_context = "\n\n".join(contexts) if contexts else None
 
     if combined_context:
-        sys_msg_content = textwrap.dedent(f"""You are a coding-focused AI assistant that helps with programming questions, code reviews, debugging, and software development concepts.
-        ONLY answer questions related to:
-        - Programming and coding
-        - Software development
-        - Computer science concepts
-        - Development tools and technologies
-        - Code debugging and optimization
-        For non-coding questions, politely redirect users to ask programming-related questions.
-
-        When using information sources, you MUST start your response with one of these:
-            - "📄 [From Documents]: " when using information from PDF documentation
-            - "🌐 [From Web]: " when using web-searched coding resources
-            - "💡 [General Knowledge]: " for general programming knowledge
-            - "🐍 [Python Tool]: " when executing code
+        sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
+        You have access to documents and/or web search results relevant to the user's question.
+        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from:
+            - "Information retrieved from documents 📄" for PDF content
+            - "Information retrieved from the web 🌐" for web content
+            - "General response based on knowledge" if neither is used.
 
         CONTEXT:
         {combined_context}
 
-        For code demonstrations:
-        1. Start with "🐍 [Python Tool]: I'm executing the following code:"
-        2. Show the code in a code block
-        3. Explain the output and concepts
-        4. End with "--- End Python Tool Output ---"
+        You can also execute Python code to demonstrate or test concepts.
 
-        REQUIRED: End EVERY response with:
-        "---
-        Tools used in this response: [list only the tools used: Documents/Web Search/Python Tool/None]"
+        IMPORTANT: When you use the Python REPL tool to execute code:
+        1. Tell the user you're running code.
+        2. Show the code (in a code block).
+        3. Explain the result.
+        4. Conclude with "Python Tool Used 🐍".
         """)
     else:
-        sys_msg_content = textwrap.dedent("""You are a coding-focused AI assistant that helps with programming questions, code reviews, debugging, and software development concepts.
-        ONLY answer questions related to:
-        - Programming and coding
-        - Software development
-        - Computer science concepts
-        - Development tools and technologies
-        - Code debugging and optimization
-        For non-coding questions, politely redirect users to ask programming-related questions.
-
-        Start responses with:
-        - "💡 [General Knowledge]: " for general programming concepts
-        - "🐍 [Python Tool]: " when executing code
-
-        For code demonstrations:
-        1. Start with "🐍 [Python Tool]: I'm executing the following code:"
-        2. Show the code in a code block
-        3. Explain the output and concepts
-        4. End with "--- End Python Tool Output ---"
-
-        REQUIRED: End EVERY response with:
-        "---
-        Tools used in this response: [list only the tools used: Documents/Web Search/Python Tool/None]"
+        # fallback general prompt
+        sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code.
+        You can execute Python code to demonstrate or test concepts.
+        Follow the Python REPL tool rules if you use it.
         """)
 
     sys_msg = SystemMessage(content=sys_msg_content)
@@ -308,3 +252,5 @@ def chat(request: dict):
     result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
     response = result["messages"][-1].content
     return {"response": response}
+
+

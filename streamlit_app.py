@@ -66,18 +66,48 @@ def send_message_to_backend(user_input: str) -> str:
         response.raise_for_status()
 
         full_response = ""
-        for line in response.iter_lines():
+        got_chunk = False
+
+        # Try to read streaming JSON-lines first
+        for line in response.iter_lines(decode_unicode=True):
             if line:
                 try:
-                    json_response = json.loads(line.decode('utf-8'))
+                    json_response = json.loads(line)
                     # Extract the actual content from the response
                     chunk = extract_reply_from_backend(json_response)
                     if chunk:
                         full_response += chunk
+                        got_chunk = True
                         # Yield the partial response
                         yield full_response
                 except json.JSONDecodeError:
-                    continue
+                    # Not a JSON line — treat as plain text
+                    text_line = line if isinstance(line, str) else line.decode('utf-8', errors='ignore')
+                    if text_line.strip():
+                        full_response += text_line
+                        got_chunk = True
+                        yield full_response
+
+        # If nothing was streamed, attempt to parse the full response as JSON (non-streaming fallback)
+        if not got_chunk:
+            try:
+                json_response = response.json()
+                chunk = extract_reply_from_backend(json_response)
+                if chunk:
+                    full_response += chunk
+                    yield full_response
+                else:
+                    # Fallback to raw text
+                    text = response.text.strip()
+                    if text:
+                        full_response += text
+                        yield full_response
+            except ValueError:
+                # response is not JSON, use text
+                text = response.text.strip()
+                if text:
+                    full_response += text
+                    yield full_response
 
         return full_response if full_response else "No response received"
 
