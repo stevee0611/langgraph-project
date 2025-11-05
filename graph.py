@@ -58,9 +58,9 @@ from typing import Literal
 
 class RouteQuery(BaseModel):
     """Route a user query to the appropriate tool."""
-    datasource: Literal["vectorstore", "chat"] = Field(
+    datasource: Literal["vectorstore", "web", "chat"] = Field(
         ...,
-        description="Given a user query, route it to `vectorstore` if it requires searching for specific documents, or to `chat` for all other cases.",
+        description="Route to: `vectorstore` for document searches, `web` for current info, or `chat` for general questions.",
     )
 # Create a prompt template and bind it to the LLM with our desired output structure.
 structured_llm = llm.with_structured_output(RouteQuery)
@@ -76,7 +76,7 @@ question_router = router_prompt | structured_llm
 
 def route_question(state: GraphState):
     """
-    Routes the user's question to determine if we need to retrieve documents or not.
+    Routes the user's question to determine if we need to retrieve documents, search web, or chat.
     """
     print("---ROUTING QUESTION---")
     question = state["messages"][-1].content
@@ -87,6 +87,9 @@ def route_question(state: GraphState):
     if result.datasource == 'vectorstore':
         print("---ROUTING TO RETRIEVE---")
         return "retrieve"
+    elif result.datasource == 'web':
+        print("---ROUTING TO WEB SEARCH---")
+        return "web_retrieve"
     else:
         print("---ROUTING TO CHAT---")
         return "chat"
@@ -117,10 +120,12 @@ tavily_tool = TavilySearch(
     topic="general"
 )
 
-def web_retrieve(query: str):
+def web_retrieve(state: GraphState):
+    query = state["messages"][-1].content
     results = tavily_tool.invoke({"query": query})
     # Now wrap results as Documents (your import)
-    return [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
+    docs = [Document(page_content=item["content"], metadata={"url": item["url"]}) for item in results["results"]]
+    return {"web_documents": docs}
 
 web_tool = Tool(
     name="Web_Search",

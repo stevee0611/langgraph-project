@@ -100,14 +100,18 @@ def send_message(user_input: str):
         # Show initial thinking indicator
         message_placeholder.markdown("*Thinking...*")
 
+        partial_response = ""
         # Get streaming response
-        for partial_response in send_message_to_backend(user_input):
-            # Preserve formatting in markdown
-            message_placeholder.markdown(partial_response + "▌", unsafe_allow_html=True)
+        for chunk in send_message_to_backend(user_input):
+            partial_response = chunk
+            # Ensure emojis and formatting are preserved
+            formatted_response = partial_response.replace("```", "\n```\n")  # Fix code block formatting
+            message_placeholder.markdown(formatted_response + "▌", unsafe_allow_html=True)
             time.sleep(0.01)
 
         # Show final response
-        final_response = partial_response if 'partial_response' in locals() else "No response received"
+        final_response = partial_response if partial_response else "No response received"
+        # Ensure final message preserves formatting
         message_placeholder.markdown(final_response, unsafe_allow_html=True)
 
         # Add to message history
