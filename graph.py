@@ -20,6 +20,7 @@ class GraphState(MessagesState):
         documents: A list of documents retrieved from the vector store.
     """
     documents: List[Document]
+    web_documents: List[Document]
 
 try:
     from langchain.callbacks.manager import CallbackManager
@@ -57,20 +58,22 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from typing import Literal
 
 class RouteQuery(BaseModel):
-    """Route a user query to the appropriate tool."""
-    datasource: Literal["vectorstore", "chat"] = Field(
+    datasource: Literal["vectorstore", "web_search", "chat"] = Field(
         ...,
-        description="Given a user query, route it to `vectorstore` if it requires searching for specific documents, or to `chat` for all other cases.",
+        description="Route to `vectorstore` for PDF questions, `web_search` for current info, or `chat` for general conversation.",
     )
 # Create a prompt template and bind it to the LLM with our desired output structure.
 structured_llm = llm.with_structured_output(RouteQuery)
-router_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system",
-         "You are an expert at routing a user query to a vectorstore or to a general chat. Use the vectorstore for questions that require fetching specific information from documents."),
-        ("human", "{question}"),
-    ]
-)
+router_prompt = ChatPromptTemplate.from_messages([
+    ("system",
+     "Route queries to:\n"
+     "- `vectorstore` for questions about uploaded documents\n"
+     "- `web_search` for current events, latest info, or general knowledge\n"
+     "- `chat` for greetings or simple conversations"
+    ),
+    ("human", "{question}"),
+])
+
 question_router = router_prompt | structured_llm
 
 
@@ -85,10 +88,10 @@ def route_question(state: GraphState):
     result = question_router.invoke({"question": question})
 
     if result.datasource == 'vectorstore':
-        print("---ROUTING TO RETRIEVE---")
         return "retrieve"
+    elif result.datasource == 'web_search':
+        return "web_retrieve"  # Now this can be triggered!
     else:
-        print("---ROUTING TO CHAT---")
         return "chat"
 
 def retrieve(state: GraphState):
@@ -179,6 +182,28 @@ def assistant(state: GraphState):
     return {'messages': [response]}
 
 
+def web_retrieve_node(state: GraphState):
+    """
+    Retrieves web results and adds them to state.
+    """
+    print("---WEB SEARCH---")
+    question = state["messages"][-1].content
+
+    # Call the Tavily search
+    results = tavily_tool.invoke({"query": question})
+
+    # Convert to Documents
+    web_docs = [
+        Document(page_content=item["content"], metadata={"url": item["url"]})
+        for item in results["results"]
+    ]
+
+    print(f"---WEB SEARCH COMPLETE: {len(web_docs)} results---")
+
+    # Return with correct state key
+    return {"web_documents": web_docs}
+
+
 def should_continue(state: GraphState):
     messages = state['messages']
     last_message = messages[-1]
@@ -211,7 +236,7 @@ builder = StateGraph(GraphState)
 
 # Nodes
 builder.add_node('retrieve', retrieve)         # PDF retrieval
-builder.add_node('web_retrieve', web_retrieve) # Web retrieval (new)
+builder.add_node('web_retrieve', web_retrieve_node) # Web retrieval (new)
 builder.add_node('chat', assistant)            # Assistant with combined context
 builder.add_node('tools', tool_node)           # Python REPL or other tools
 
