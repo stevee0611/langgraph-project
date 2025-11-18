@@ -48,7 +48,7 @@ qdrant_client = QdrantClient(
 vector_store = QdrantVectorStore(
     client=qdrant_client,
     collection_name="my_docs",
-    embeddings=embeddings,
+    embedding=embeddings,
 )
 retriever = vector_store.as_retriever()
 
