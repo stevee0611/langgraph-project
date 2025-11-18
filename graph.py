@@ -35,7 +35,7 @@ from langgraph.prebuilt import ToolNode
 import os
 from qdrant_client import QdrantClient
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Qdrant
+from langchain_qdrant import Qdrant
 
 embeddings = OpenAIEmbeddings()
 qdrant_client = QdrantClient(
@@ -54,7 +54,7 @@ retriever = vector_store.as_retriever()
 
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from typing import Literal
 
 class RouteQuery(BaseModel):

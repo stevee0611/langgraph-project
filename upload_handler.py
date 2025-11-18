@@ -5,7 +5,7 @@ from langchain.schema import Document
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Qdrant
+from langchain_qdrant import Qdrant
 from qdrant_client import QdrantClient
 from dotenv import load_dotenv
 
@@ -14,6 +14,8 @@ load_dotenv()
 
 class UserDocumentHandler:
     def __init__(self):
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY not found in environment")
         self.embeddings = OpenAIEmbeddings()
         self.qdrant_client = QdrantClient(
             url=os.getenv("QDRANT_URL"),
