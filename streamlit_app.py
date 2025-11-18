@@ -10,6 +10,10 @@ BACKEND_URL = os.environ.get(
     "BACKEND_URL",
     "https://langgraph-project-production.up.railway.app/chat",
 )
+UPLOAD_URL = os.environ.get(
+    "UPLOAD_URL",
+    "https://langgraph-project-production.up.railway.app/upload",
+)
 REQUEST_TIMEOUT = 30
 
 st.set_page_config(page_title="LangGraph Chat", page_icon="🤖")
@@ -29,7 +33,7 @@ with col1:
 with col2:
     st.markdown("")
 
-# Add file upload section
+#file upload section
 with st.sidebar:
     st.header("📁 Upload Your Documents")
     st.write("Upload files to ask questions about them")
@@ -44,27 +48,28 @@ with st.sidebar:
         if st.button("Process Document"):
             with st.spinner("Processing your document..."):
                 try:
-                    # Import the handler
-                    from upload_handler import UserDocumentHandler
+                    # Send to backend instead of processing locally
+                    files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+                    data = {"session_id": st.session_state.session_id}
 
-                    handler = UserDocumentHandler()
-
-                    # Process the file
-                    file_bytes = uploaded_file.read()
-                    chunks = handler.process_uploaded_file(
-                        file_bytes,
-                        uploaded_file.name,
-                        st.session_state.session_id
+                    response = requests.post(
+                        UPLOAD_URL,
+                        files=files,
+                        data=data,
+                        timeout=60
                     )
+                    response.raise_for_status()
 
-                    # Upload to Qdrant
-                    count = handler.upload_to_qdrant(chunks)
+                    result = response.json()
 
-                    st.success(f"✅ Uploaded {count} chunks from {uploaded_file.name}")
-                    st.info("You can now ask questions about this document!")
+                    if result.get("success"):
+                        st.success(f"✅ {result['message']}")
+                        st.info("You can now ask questions about this document!")
+                    else:
+                        st.error(f"❌ Error: {result.get('error')}")
 
                 except Exception as e:
-                    st.error(f"❌ Error processing file: {e}")
+                    st.error(f"❌ Error uploading file: {e}")
 
 
 def extract_reply_from_backend(data: Any) -> str:
