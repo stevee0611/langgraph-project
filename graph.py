@@ -1,7 +1,4 @@
 from dotenv import load_dotenv
-from langchain.chains.hyde.prompts import web_search
-
-load_dotenv()
 from langchain_openai import ChatOpenAI
 from typing import List
 from langchain_core.documents import Document
@@ -10,6 +7,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 import textwrap
 from langchain_tavily import TavilySearch
 from langchain.agents import Tool
+
+load_dotenv()
 
 class GraphState(MessagesState):
     """
@@ -21,6 +20,7 @@ class GraphState(MessagesState):
     """
     documents: List[Document]
     web_documents: List[Document]
+    session_id: str
 
 try:
     from langchain.callbacks.manager import CallbackManager
@@ -107,6 +107,20 @@ def retrieve(state: GraphState):
     print("---RETRIEVING DOCUMENTS---")
     # Get the most recent question
     question = state["messages"][-1].content
+
+    # Get session_id from state (will be passed from FastAPI)
+    session_id = state.get("session_id")
+
+    # Try to retrieve session-specific documents first
+    if session_id:
+        session_docs = retriever.invoke(
+            question,
+            filter={"session_id": session_id}
+        )
+        if session_docs:
+            print(f"---FOUND {len(session_docs)} SESSION DOCS---")
+            return {"documents": session_docs}
+
     # Retrieve documents
     docs = retriever.invoke(question)
     print("---DOCUMENTS RETRIEVED---")
@@ -264,17 +278,21 @@ graph = builder.compile(checkpointer=memory)
 
 # --- FastAPI integration for deployment ---
 from fastapi import FastAPI, Request
-from langchain_core.messages import HumanMessage
-
 app = FastAPI()
 
 @app.post("/chat")
 def chat(request: dict):
     print("Received:", request)
     user_input = request.get("message")
-    thread_id = request.get("session_id") or request.get("thread_id") or "default-thread"  # Accept both
-    config = {"configurable": {"thread_id": thread_id}}
-    result = graph.invoke({"messages": [HumanMessage(content=user_input)]}, config)
+    session_id = request.get("session_id") or request.get("thread_id") or "default-thread"
+
+    config = {"configurable": {"thread_id": session_id}}
+
+    # Pass session_id in the state
+    result = graph.invoke({
+        "messages": [HumanMessage(content=user_input)],
+        "session_id": session_id
+    }, config)
     response = result["messages"][-1].content
     return {"response": response}
 

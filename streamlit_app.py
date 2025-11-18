@@ -29,6 +29,44 @@ with col1:
 with col2:
     st.markdown("")
 
+# Add file upload section
+with st.sidebar:
+    st.header("📁 Upload Your Documents")
+    st.write("Upload files to ask questions about them")
+
+    uploaded_file = st.file_uploader(
+        "Choose a file",
+        type=['pdf', 'txt', 'docx'],
+        help="Supported: PDF, TXT, DOCX"
+    )
+
+    if uploaded_file:
+        if st.button("Process Document"):
+            with st.spinner("Processing your document..."):
+                try:
+                    # Import the handler
+                    from upload_handler import UserDocumentHandler
+
+                    handler = UserDocumentHandler()
+
+                    # Process the file
+                    file_bytes = uploaded_file.read()
+                    chunks = handler.process_uploaded_file(
+                        file_bytes,
+                        uploaded_file.name,
+                        st.session_state.session_id
+                    )
+
+                    # Upload to Qdrant
+                    count = handler.upload_to_qdrant(chunks)
+
+                    st.success(f"✅ Uploaded {count} chunks from {uploaded_file.name}")
+                    st.info("You can now ask questions about this document!")
+
+                except Exception as e:
+                    st.error(f"❌ Error processing file: {e}")
+
+
 def extract_reply_from_backend(data: Any) -> str:
     try:
         if isinstance(data, dict):
