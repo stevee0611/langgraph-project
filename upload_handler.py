@@ -73,11 +73,11 @@ class UserDocumentHandler:
                 os.remove(tmp_path)
 
     def upload_to_qdrant(self, chunks: List[Document]) -> int:
+        """Upload document chunks to Qdrant and return count."""
         QdrantVectorStore.from_documents(
-            chunks,
-            self.embeddings,
-            url=os.getenv("QDRANT_URL"),
-            api_key=os.getenv("QDRANT_API_KEY"),
+            documents=chunks,
+            embedding=self.embeddings,
+            client=self.qdrant_client,  # ✅ Use existing client
             collection_name=self.collection_name,
         )
         return len(chunks)
