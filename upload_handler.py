@@ -14,12 +14,18 @@ load_dotenv()
 
 class UserDocumentHandler:
     def __init__(self):
-        self.qdrant_client = QdrantClient(
-            url=os.getenv("QDRANT_URL"),
-            api_key=os.getenv("QDRANT_API_KEY"),
-            timeout=60,
-            prefer_grpc=False,
-        )
+        try:
+            self.qdrant_client = QdrantClient(
+                url=os.getenv("QDRANT_URL"),
+                api_key=os.getenv("QDRANT_API_KEY"),
+                timeout=60,
+                prefer_grpc=False,
+            )
+            print(f"✅ Qdrant client initialized for upload handler")
+        except Exception as e:
+            print(f"❌ Failed to initialize Qdrant client: {e}")
+            raise
+
         self.collection_name = "my_docs"
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,
@@ -30,13 +36,24 @@ class UserDocumentHandler:
         self._ensure_collection_exists()
 
     def _ensure_collection_exists(self):
+        """Ensure the collection exists, create if it doesn't."""
         try:
             self.qdrant_client.get_collection(self.collection_name)
-        except Exception:
-            self.qdrant_client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(size=1536, distance=models.Distance.COSINE),
-            )
+            print(f"✅ Collection '{self.collection_name}' exists")
+        except Exception as e:
+            print(f"⚠️ Collection '{self.collection_name}' not found, creating...")
+            try:
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=1536,
+                        distance=models.Distance.COSINE
+                    ),
+                )
+                print(f"✅ Collection '{self.collection_name}' created successfully")
+            except Exception as create_error:
+                print(f"❌ Failed to create collection: {create_error}")
+                raise
 
     @property
     def embeddings(self):
@@ -74,11 +91,20 @@ class UserDocumentHandler:
 
     def upload_to_qdrant(self, chunks: List[Document]) -> int:
         """Upload document chunks to Qdrant and return count."""
-        QdrantVectorStore.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
-            client=self.qdrant_client,  # ✅ Use existing client
-            collection_name=self.collection_name,
-        )
-        return len(chunks)
+        try:
+            # Ensure collection still exists before upload
+            self._ensure_collection_exists()
 
+            QdrantVectorStore.from_documents(
+                documents=chunks,
+                embedding=self.embeddings,
+                url=os.getenv("QDRANT_URL"),
+                api_key=os.getenv("QDRANT_API_KEY"),
+                collection_name=self.collection_name,
+                prefer_grpc=False,
+            )
+            print(f"✅ Uploaded {len(chunks)} chunks to Qdrant")
+            return len(chunks)
+        except Exception as e:
+            print(f"❌ Error uploading to Qdrant: {e}")
+            raise

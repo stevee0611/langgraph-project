@@ -56,20 +56,27 @@ with st.sidebar:
                         UPLOAD_URL,
                         files=files,
                         data=data,
-                        timeout=60
+                        timeout=120  # Increased timeout for large files
                     )
-                    response.raise_for_status()
 
-                    result = response.json()
-
-                    if result.get("success"):
-                        st.success(f"✅ {result['message']}")
-                        st.info("You can now ask questions about this document!")
+                    if response.status_code != 200:
+                        st.error(f"❌ Server error ({response.status_code}): {response.text}")
                     else:
-                        st.error(f"❌ Error: {result.get('error')}")
+                        result = response.json()
 
+                        if result.get("success"):
+                            st.success(f"✅ {result['message']}")
+                            st.info("You can now ask questions about this document!")
+                        else:
+                            st.error(f"❌ Error: {result.get('error', 'Unknown error')}")
+
+                except requests.exceptions.Timeout:
+                    st.error("❌ Upload timed out. Please try again with a smaller file.")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to server. Please check if the backend is running.")
                 except Exception as e:
-                    st.error(f"❌ Error uploading file: {e}")
+                    st.error(f"❌ Error uploading file: {str(e)}")
+                    print(f"Upload error details: {e}")
 
 
 def extract_reply_from_backend(data: Any) -> str:

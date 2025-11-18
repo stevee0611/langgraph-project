@@ -34,23 +34,55 @@ from langchain_experimental.tools.python.tool import PythonREPLTool
 from langgraph.prebuilt import ToolNode
 import os
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import Qdrant, QdrantVectorStore
 
 embeddings = OpenAIEmbeddings()
-qdrant_client = QdrantClient(
-    url=os.getenv("QDRANT_URL"),
-    api_key=os.getenv("QDRANT_API_KEY"),
-    timeout=60,
-    prefer_grpc=False,  # ✅ Add this
-)
 
-vector_store = QdrantVectorStore(
-    client=qdrant_client,
-    collection_name="my_docs",
-    embedding=embeddings,
-)
-retriever = vector_store.as_retriever()
+# Initialize Qdrant client with error handling
+try:
+    qdrant_client = QdrantClient(
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY"),
+        timeout=60,
+        prefer_grpc=False,
+    )
+    print(f"✅ Qdrant client connected to {os.getenv('QDRANT_URL')}")
+
+    # Ensure collection exists
+    collection_name = "my_docs"
+    try:
+        qdrant_client.get_collection(collection_name)
+        print(f"✅ Collection '{collection_name}' exists")
+    except Exception as e:
+        print(f"⚠️ Collection '{collection_name}' not found, creating...")
+        qdrant_client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(
+                size=1536,
+                distance=models.Distance.COSINE
+            ),
+        )
+        print(f"✅ Collection '{collection_name}' created successfully")
+
+except Exception as e:
+    print(f"❌ CRITICAL ERROR: Failed to initialize Qdrant: {e}")
+    import sys
+    sys.exit(1)
+
+# Initialize vector store after ensuring collection exists
+try:
+    vector_store = QdrantVectorStore(
+        client=qdrant_client,
+        collection_name="my_docs",
+        embedding=embeddings,
+    )
+    retriever = vector_store.as_retriever()
+    print("✅ Vector store initialized successfully")
+except Exception as e:
+    print(f"❌ ERROR: Failed to initialize vector store: {e}")
+    retriever = None
 
 
 # Initialize the Python REPL tool
@@ -108,27 +140,37 @@ def retrieve(state: GraphState):
         GraphState: New state with retrieved documents.
     """
     print("---RETRIEVING DOCUMENTS---")
+
+    # Check if retriever is available
+    if retriever is None:
+        print("⚠️ Retriever not available, skipping document retrieval")
+        return {"documents": []}
+
     # Get the most recent question
     question = state["messages"][-1].content
 
     # Get session_id from state (will be passed from FastAPI)
     session_id = state.get("session_id")
 
-    # Try to retrieve session-specific documents first
-    if session_id:
-        session_docs = retriever.invoke(
-            question,
-            filter={"session_id": session_id}
-        )
-        if session_docs:
-            print(f"---FOUND {len(session_docs)} SESSION DOCS---")
-            return {"documents": session_docs}
+    try:
+        # Try to retrieve session-specific documents first
+        if session_id:
+            session_docs = retriever.invoke(
+                question,
+                filter={"session_id": session_id}
+            )
+            if session_docs:
+                print(f"---FOUND {len(session_docs)} SESSION DOCS---")
+                return {"documents": session_docs}
 
-    # Retrieve documents
-    docs = retriever.invoke(question)
-    print("---DOCUMENTS RETRIEVED---")
-    # Add them to the state
-    return {"documents": docs}
+        # Retrieve documents
+        docs = retriever.invoke(question)
+        print(f"---DOCUMENTS RETRIEVED: {len(docs)}---")
+        # Add them to the state
+        return {"documents": docs}
+    except Exception as e:
+        print(f"⚠️ Error retrieving documents: {e}")
+        return {"documents": []}
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")  # type: str
 tavily_tool = TavilySearch(
@@ -206,19 +248,23 @@ def web_retrieve_node(state: GraphState):
     print("---WEB SEARCH---")
     question = state["messages"][-1].content
 
-    # Call the Tavily search
-    results = tavily_tool.invoke({"query": question})
+    try:
+        # Call the Tavily search
+        results = tavily_tool.invoke({"query": question})
 
-    # Convert to Documents
-    web_docs = [
-        Document(page_content=item["content"], metadata={"url": item["url"]})
-        for item in results["results"]
-    ]
+        # Convert to Documents
+        web_docs = [
+            Document(page_content=item["content"], metadata={"url": item["url"]})
+            for item in results["results"]
+        ]
 
-    print(f"---WEB SEARCH COMPLETE: {len(web_docs)} results---")
+        print(f"---WEB SEARCH COMPLETE: {len(web_docs)} results---")
 
-    # Return with correct state key
-    return {"web_documents": web_docs}
+        # Return with correct state key
+        return {"web_documents": web_docs}
+    except Exception as e:
+        print(f"⚠️ Web search error: {e}")
+        return {"web_documents": []}
 
 
 def should_continue(state: GraphState):
@@ -292,15 +338,18 @@ def chat(request: dict):
 
     config = {"configurable": {"thread_id": session_id}}
 
-    # Pass session_id in the state
-    result = graph.invoke({
-        "messages": [HumanMessage(content=user_input)],
-        "session_id": session_id
-    }, config)
-    response = result["messages"][-1].content
-    return {"response": response}
+    try:
+        # Pass session_id in the state
+        result = graph.invoke({
+            "messages": [HumanMessage(content=user_input)],
+            "session_id": session_id
+        }, config)
+        response = result["messages"][-1].content
+        return {"response": response}
+    except Exception as e:
+        print(f"❌ Error in chat endpoint: {e}")
+        return {"response": f"Sorry, an error occurred: {str(e)}"}
 
-app = FastAPI()
 @app.post("/upload")
 async def upload_document(
         file: UploadFile = File(...),
@@ -329,8 +378,8 @@ async def upload_document(
         }
 
     except Exception as e:
+        print(f"❌ Upload error: {e}")
         return {
             "success": False,
             "error": str(e)
         }
-
