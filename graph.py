@@ -194,47 +194,65 @@ python_repl_tool = PythonREPLTool()
 tools = [python_repl_tool, web_tool]
 llm_with_tools = llm.bind_tools(tools)
 
+
 def assistant(state: GraphState):
     contexts = []
+    source_used = None  # Track which source was used
 
-    if state.get("documents"):
+    if state.get("documents") and len(state.get("documents", [])) > 0:
         pdf_context = "\n---\n".join([doc.page_content for doc in state["documents"]])
         contexts.append(f"[Documents 📄]\n{pdf_context}")
+        source_used = "documents"
 
-    if state.get("web_documents"):
+    if state.get("web_documents") and len(state.get("web_documents", [])) > 0:
         web_context = "\n---\n".join([doc.page_content for doc in state["web_documents"]])
         contexts.append(f"[Web 🌐]\n{web_context}")
+        if source_used == "documents":
+            source_used = "both"
+        else:
+            source_used = "web"
 
     combined_context = "\n\n".join(contexts) if contexts else None
 
     if combined_context:
         sys_msg_content = textwrap.dedent(f"""You are a personal assistant for learning to code.
         You have access to documents and/or web search results relevant to the user's question.
-        When you use information from these sources to answer, you MUST explicitly tell the user which source it came from:
-            - "Information retrieved from documents 📄" for PDF content
-            - "Information retrieved from the web 🌐" for web content
-            - "General response based on knowledge" if neither is used.
+        Use the provided context to answer accurately.
 
         CONTEXT:
         {combined_context}
 
         You can also execute Python code to demonstrate or test concepts.
-
-        IMPORTANT: When you use the Python REPL tool to execute code:
-        1. Tell the user you're running code.
-        2. Show the code (in a code block).
-        3. Explain the result.
-        4. Conclude with "Python Tool Used 🐍".
         """)
     else:
         # fallback general prompt
         sys_msg_content = textwrap.dedent("""You are a personal assistant for learning to code.
         You can execute Python code to demonstrate or test concepts.
-        Follow the Python REPL tool rules if you use it.
         """)
 
     sys_msg = SystemMessage(content=sys_msg_content)
     response = llm_with_tools.invoke([sys_msg] + state['messages'])
+
+    # ✅ ALWAYS force add source tag - don't rely on LLM
+    if hasattr(response, 'content') and response.content:
+        content = response.content
+
+        # Skip tagging if this is a tool call (will be handled after tool execution)
+        if not (hasattr(response, 'tool_calls') and response.tool_calls):
+            # Check if tag already exists (to avoid double-tagging)
+            already_tagged = any(marker in content[:50] for marker in ["📄", "🌐", "💭", "🐍"])
+
+            if not already_tagged:
+                # Force add the appropriate tag
+                if source_used == "documents":
+                    response.content = "📄 **[Source: Your Documents]**\n\n" + content
+                elif source_used == "web":
+                    response.content = "🌐 **[Source: Web Search]**\n\n" + content
+                elif source_used == "both":
+                    response.content = "📄🌐 **[Source: Documents + Web]**\n\n" + content
+                else:
+                    response.content = "💭 **[Source: AI Knowledge]**\n\n" + content
+
     return {'messages': [response]}
 
 
@@ -267,11 +285,30 @@ def web_retrieve_node(state: GraphState):
 def should_continue(state: GraphState):
     messages = state['messages']
     last_message = messages[-1]
+
     # If there are tool calls, route to the tool node
     if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
         return "tools"
+
+    # Check if this response came after a tool execution
+    # Look back through messages to see if any tools were called
+    if len(messages) >= 2:
+        # Check if we just came from tools
+        for i in range(len(messages) - 2, max(0, len(messages) - 5), -1):
+            msg = messages[i]
+            # Check if this message has tool calls
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                # This response is after a tool call, tag it
+                if hasattr(last_message, 'content') and last_message.content:
+                    content = last_message.content
+                    # Check if not already tagged
+                    if "🐍" not in content[:50]:
+                        last_message.content = "🐍 **[Source: Python Code Execution]**\n\n" + content
+                break
+
     # Otherwise, end the conversation
     return END
+
 tool_node = ToolNode(tools)
 
 from langgraph.graph import START, StateGraph, END
