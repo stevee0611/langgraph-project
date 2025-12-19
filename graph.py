@@ -41,6 +41,9 @@ from langchain_qdrant import Qdrant, QdrantVectorStore
 embeddings = OpenAIEmbeddings()
 
 # Initialize Qdrant client with error handling
+qdrant_client = None
+retriever = None
+
 try:
     qdrant_client = QdrantClient(
         url=os.getenv("QDRANT_URL"),
@@ -50,39 +53,33 @@ try:
     )
     print(f"✅ Qdrant client connected to {os.getenv('QDRANT_URL')}")
 
-    # Ensure collection exists
+    # Check if collection exists (DON'T create it!)
     collection_name = "my_docs"
     try:
-        qdrant_client.get_collection(collection_name)
-        print(f"✅ Collection '{collection_name}' exists")
-    except Exception as e:
-        print(f"⚠️ Collection '{collection_name}' not found, creating...")
-        qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=models.VectorParams(
-                size=1536,
-                distance=models.Distance.COSINE
-            ),
+        collection_info = qdrant_client.get_collection(collection_name)
+        print(f"✅ Collection '{collection_name}' exists with {collection_info.points_count} documents")
+
+        # Initialize vector store only if collection exists
+        vector_store = QdrantVectorStore(
+            client=qdrant_client,
+            collection_name="my_docs",
+            embedding=embeddings,
         )
-        print(f"✅ Collection '{collection_name}' created successfully")
+        retriever = vector_store.as_retriever()
+        print("✅ Vector store initialized successfully")
+
+    except Exception as e:
+        print(f"⚠️ Collection '{collection_name}' not found: {e}")
+        print(f"   Run 'python loader.py' to create the collection and upload documents.")
+        retriever = None
 
 except Exception as e:
-    print(f"❌ CRITICAL ERROR: Failed to initialize Qdrant: {e}")
-    import sys
-    sys.exit(1)
-
-# Initialize vector store after ensuring collection exists
-try:
-    vector_store = QdrantVectorStore(
-        client=qdrant_client,
-        collection_name="my_docs",
-        embedding=embeddings,
-    )
-    retriever = vector_store.as_retriever()
-    print("✅ Vector store initialized successfully")
-except Exception as e:
-    print(f"❌ ERROR: Failed to initialize vector store: {e}")
+    print(f"⚠️ Qdrant connection failed: {e}")
+    print(f"   Document retrieval will be disabled. Chat and web search will still work.")
+    qdrant_client = None
     retriever = None
+
+# Initialize the Python REPL tool
 
 
 # Initialize the Python REPL tool
