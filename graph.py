@@ -326,8 +326,7 @@ graph = builder.compile(checkpointer=memory)
 
 
 # --- FastAPI integration for deployment ---
-from fastapi import FastAPI, UploadFile, File, Form
-from upload_handler import UserDocumentHandler
+from fastapi import FastAPI
 app = FastAPI()
 
 @app.post("/chat")
@@ -350,36 +349,3 @@ def chat(request: dict):
         print(f"❌ Error in chat endpoint: {e}")
         return {"response": f"Sorry, an error occurred: {str(e)}"}
 
-@app.post("/upload")
-async def upload_document(
-        file: UploadFile = File(...),
-        session_id: str = Form(...)
-):
-    """Handle document uploads from Streamlit."""
-    try:
-        handler = UserDocumentHandler()
-
-        # Read file bytes
-        file_bytes = await file.read()
-
-        # Process and upload
-        chunks = handler.process_uploaded_file(
-            file_bytes,
-            file.filename,
-            session_id
-        )
-
-        count = handler.upload_to_qdrant(chunks)
-
-        return {
-            "success": True,
-            "message": f"Uploaded {count} chunks from {file.filename}",
-            "chunks": count
-        }
-
-    except Exception as e:
-        print(f"❌ Upload error: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }

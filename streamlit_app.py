@@ -33,52 +33,6 @@ with col1:
 with col2:
     st.markdown("")
 
-#file upload section
-with st.sidebar:
-    st.header("📁 Upload Your Documents")
-    st.write("Upload files to ask questions about them")
-
-    uploaded_file = st.file_uploader(
-        "Choose a file",
-        type=['pdf', 'txt', 'docx'],
-        help="Supported: PDF, TXT, DOCX"
-    )
-
-    if uploaded_file:
-        if st.button("Process Document"):
-            with st.spinner("Processing your document..."):
-                try:
-                    # Send to backend instead of processing locally
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
-                    data = {"session_id": st.session_state.session_id}
-
-                    response = requests.post(
-                        UPLOAD_URL,
-                        files=files,
-                        data=data,
-                        timeout=120  # Increased timeout for large files
-                    )
-
-                    if response.status_code != 200:
-                        st.error(f"❌ Server error ({response.status_code}): {response.text}")
-                    else:
-                        result = response.json()
-
-                        if result.get("success"):
-                            st.success(f"✅ {result['message']}")
-                            st.info("You can now ask questions about this document!")
-                        else:
-                            st.error(f"❌ Error: {result.get('error', 'Unknown error')}")
-
-                except requests.exceptions.Timeout:
-                    st.error("❌ Upload timed out. Please try again with a smaller file.")
-                except requests.exceptions.ConnectionError:
-                    st.error("❌ Cannot connect to server. Please check if the backend is running.")
-                except Exception as e:
-                    st.error(f"❌ Error uploading file: {str(e)}")
-                    print(f"Upload error details: {e}")
-
-
 def extract_reply_from_backend(data: Any) -> str:
     try:
         if isinstance(data, dict):
